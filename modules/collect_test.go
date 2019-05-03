@@ -1,4 +1,4 @@
-// Copyright 2017 The Hugo Authors. All rights reserved.
+// Copyright 2019 The Hugo Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,34 +11,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package site
+package modules
 
 import (
 	"testing"
 
-	"github.com/spf13/viper"
-
-	"github.com/gohugoio/hugo/deps"
-	"github.com/gohugoio/hugo/resources/page"
-	"github.com/gohugoio/hugo/tpl/internal"
 	"github.com/stretchr/testify/require"
 )
 
-func TestInit(t *testing.T) {
-	var found bool
-	var ns *internal.TemplateFuncsNamespace
-	v := viper.New()
-	v.Set("contentDir", "content")
-	s := page.NewDummyHugoSite(v)
+func TestPathKey(t *testing.T) {
+	assert := require.New(t)
 
-	for _, nsf := range internal.TemplateFuncsNamespaceRegistry {
-		ns = nsf(&deps.Deps{Site: s})
-		if ns.Name == name {
-			found = true
-			break
-		}
+	for _, test := range []struct {
+		in     string
+		expect string
+	}{
+		{"github.com/foo", "github.com/foo"},
+		{"github.com/foo/v2", "github.com/foo"},
+		{"github.com/foo/v12", "github.com/foo"},
+		{"github.com/foo/v3d", "github.com/foo/v3d"},
+		{"MyTheme", "mytheme"},
+	} {
+		assert.Equal(test.expect, pathKey(test.in))
 	}
 
-	require.True(t, found)
-	require.IsType(t, s, ns.Context())
 }
