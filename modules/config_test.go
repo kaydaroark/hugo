@@ -33,7 +33,7 @@ target="assets/bootstrap/scss"
 [[module.imports.mounts]]
 source="src/markdown/blog"
 target="content/blog"
-language="en"
+lang="en"
 `
 	cfg, err := config.FromConfigString(tomlConfig, "toml")
 	assert.NoError(err)
@@ -46,7 +46,7 @@ language="en"
 	imp.Path = "github.com/bep/mycomponent"
 	assert.Equal("src/markdown/blog", imp.Mounts[1].Source)
 	assert.Equal("content/blog", imp.Mounts[1].Target)
-	assert.Equal("en", imp.Mounts[1].Language)
+	assert.Equal("en", imp.Mounts[1].Lang)
 
 }
 
@@ -84,5 +84,21 @@ path="github.com/bep/mycomponent"
 
 	_, err = DecodeConfig(cfg)
 	assert.Error(err)
+
+}
+
+func TestComponentFolders(t *testing.T) {
+	assert := require.New(t)
+
+	// It's important that these are absolutely right and not changed.
+	assert.Equal(len(componentFolders), len(componentFoldersSet))
+	assert.True(componentFoldersSet["archetypes"])
+	assert.True(componentFoldersSet["layouts"])
+	assert.True(componentFoldersSet["data"])
+	assert.True(componentFoldersSet["i18n"])
+	assert.True(componentFoldersSet["assets"])
+	assert.True(componentFoldersSet["resources"])
+	assert.True(componentFoldersSet["static"])
+	assert.True(componentFoldersSet["content"])
 
 }

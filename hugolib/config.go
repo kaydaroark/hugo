@@ -468,7 +468,7 @@ func (l configLoader) loadThemeConfig(v1 *viper.Viper) ([]string, error) {
 	}
 
 	// Avoid recreating these later.
-	v1.Set("allThemes", themeConfig.Modules)
+	v1.Set("allModules", themeConfig.Modules)
 	v1.Set("modulesClient", modulesClient)
 
 	if len(themeConfig.Modules) == 0 {

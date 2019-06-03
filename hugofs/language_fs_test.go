@@ -36,7 +36,7 @@ func TestLanguagFs(t *testing.T) {
 	assert.NoError(err)
 	fi, err := lfs.Stat(filepath.FromSlash("sect/page.md"))
 	assert.NoError(err)
-	assert.Equal("__hugofs_sv_page.md", fi.Name())
+	assert.Equal("__sv__hugofs_page.md", fi.Name())
 
 	languager, ok := fi.(LanguageAnnouncer)
 	assert.True(ok)
@@ -48,7 +48,7 @@ func TestLanguagFs(t *testing.T) {
 	assert.Equal(filepath.FromSlash("/my/base/sect/page.md"), lfi.Filename())
 	assert.Equal(filepath.FromSlash("sect/page.md"), lfi.Path())
 	assert.Equal("page.sv.md", lfi.virtualName)
-	assert.Equal("__hugofs_sv_page.md", lfi.Name())
+	assert.Equal("__sv__hugofs_page.md", lfi.Name())
 	assert.Equal("page.md", lfi.RealName())
 	assert.Equal(filepath.FromSlash("/my/base"), lfi.BaseDir())
 	assert.Equal("sv", lfi.Lang())

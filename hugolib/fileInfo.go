@@ -16,15 +16,18 @@ package hugolib
 import (
 	"strings"
 
+	"github.com/gohugoio/hugo/hugofs"
+	"github.com/spf13/afero"
+
 	"github.com/gohugoio/hugo/helpers"
 	"github.com/gohugoio/hugo/source"
 )
 
 // fileInfo implements the File and ReadableFile interface.
 var (
-	_ source.File         = (*fileInfo)(nil)
-	_ source.ReadableFile = (*fileInfo)(nil)
-	_ pathLangFile        = (*fileInfo)(nil)
+	_ source.File = (*fileInfo)(nil)
+	//	_ source.ReadableFile = (*fileInfo)(nil) // TODO(bep) mod remove
+	_ pathLangFile = (*fileInfo)(nil)
 )
 
 // A partial interface to prevent ambigous compiler error.
@@ -44,6 +47,10 @@ type fileInfo struct {
 
 	// Set if the content language for this file is disabled.
 	disabled bool
+}
+
+func (fi *fileInfo) Open() (afero.File, error) {
+	return fi.basePather.(hugofs.FileOpener).Open()
 }
 
 func (fi *fileInfo) Lang() string {

@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gohugoio/hugo/langs"
+
 	radix "github.com/hashicorp/go-immutable-radix"
 	"github.com/spf13/afero"
 )
@@ -38,6 +40,7 @@ type rootMappingFile struct {
 	afero.File
 	fs   *RootMappingFs
 	name string
+	rm   RootMapping
 }
 
 type rootMappingFileInfo struct {
@@ -72,26 +75,56 @@ func newRootMappingDirFileInfo(name string) *rootMappingFileInfo {
 	return &rootMappingFileInfo{name: name}
 }
 
+type RootMapping struct {
+	From string
+	To   string
+
+	// Metadata
+	Lang string
+}
+
+func (rm *RootMapping) clean() {
+	rm.From = filepath.Clean(rm.From)
+	rm.To = filepath.Clean(rm.To)
+}
+
 // NewRootMappingFs creates a new RootMappingFs on top of the provided with
-// a list of from, to string pairs of root mappings.
-// Note that 'from' represents a virtual root that maps to the actual filename in 'to'.
-func NewRootMappingFs(fs afero.Fs, fromTo ...string) (*RootMappingFs, error) {
+// of root mappings with some optional metadata about the root.
+// Note that 'From' represents a virtual root that maps to the actual filename in 'To'.
+func NewRootMappingFs(fs afero.Fs, rms ...RootMapping) (*RootMappingFs, error) {
 	rootMapToReal := radix.New().Txn()
 	var virtualRoots []string
 
-	for i := 0; i < len(fromTo); i += 2 {
-		vr := filepath.Clean(fromTo[i])
-		rr := filepath.Clean(fromTo[i+1])
+	for _, rm := range rms {
+		(&rm).clean()
 
 		// We need to preserve the original order for Readdir
-		virtualRoots = append(virtualRoots, vr)
+		virtualRoots = append(virtualRoots, rm.From)
 
-		rootMapToReal.Insert([]byte(vr), rr)
+		rootMapToReal.Insert([]byte(rm.From), rm)
+	}
+
+	if rfs, ok := fs.(*afero.BasePathFs); ok {
+		fs = NewBasePathRealFilenameFs(rfs)
 	}
 
 	return &RootMappingFs{Fs: fs,
 		virtualRoots:  virtualRoots,
 		rootMapToReal: rootMapToReal.Commit().Root()}, nil
+}
+
+// NewRootMappingFsFromFromTo is a convenicence variant of NewRootMappingFs taking
+// From and To as string pairs.
+func NewRootMappingFsFromFromTo(fs afero.Fs, fromTo ...string) (*RootMappingFs, error) {
+	rms := make([]RootMapping, len(fromTo)/2)
+	for i, j := 0, 0; j < len(fromTo); i, j = i+1, j+2 {
+		rms[i] = RootMapping{
+			From: fromTo[j],
+			To:   fromTo[j+1],
+		}
+	}
+
+	return NewRootMappingFs(fs, rms...)
 }
 
 // Stat returns the os.FileInfo structure describing a given file.  If there is
@@ -101,18 +134,30 @@ func (fs *RootMappingFs) Stat(name string) (os.FileInfo, error) {
 	if fs.isRoot(name) {
 		return newRootMappingDirFileInfo(name), nil
 	}
-	realName, root := fs.realNameAndRoot(name)
+	realName, _, rm := fs.realNameAndRoot(name)
 
 	fi, err := fs.Fs.Stat(realName)
-	if rfi, ok := fi.(RealFilenameInfo); ok {
-		return rfi, err
+	if err != nil {
+		return nil, err
 	}
 
-	return &realFilenameInfo{
-		FileInfo:     fi,
-		realFilename: realName,
-		virtualRoot:  root,
-	}, err
+	rfi, ok := fi.(RealFilenameInfo)
+
+	if !ok {
+		rfi = &realFilenameInfo{FileInfo: fi, realFilename: realName}
+	}
+
+	vfi, _ := fi.(VirtualFileInfo)
+
+	if rm.Lang != "" {
+		return &realFilenameAndLangInfo{
+			lang:             rm.Lang,
+			RealFilenameInfo: rfi,
+			VirtualFileInfo:  vfi,
+		}, nil
+	}
+
+	return rfi, nil
 
 }
 
@@ -126,12 +171,12 @@ func (fs *RootMappingFs) Open(name string) (afero.File, error) {
 	if fs.isRoot(name) {
 		return &rootMappingFile{name: name, fs: fs}, nil
 	}
-	realName, _ := fs.realNameAndRoot(name)
+	realName, _, rm := fs.realNameAndRoot(name)
 	f, err := fs.Fs.Open(realName)
 	if err != nil {
 		return nil, err
 	}
-	return &rootMappingFile{File: f, name: name, fs: fs}, nil
+	return &rootMappingFile{File: f, name: name, fs: fs, rm: rm}, nil
 }
 
 // LstatIfPossible returns the os.FileInfo structure describing a given file.
@@ -143,37 +188,39 @@ func (fs *RootMappingFs) LstatIfPossible(name string) (os.FileInfo, bool, error)
 		return newRootMappingDirFileInfo(name), false, nil
 	}
 
-	name, root := fs.realNameAndRoot(name)
-
-	var wasLstat bool
-	var fi os.FileInfo
-	var err error
+	name, _, rm := fs.realNameAndRoot(name)
 
 	if ls, ok := fs.Fs.(afero.Lstater); ok {
-		fi, wasLstat, err = ls.LstatIfPossible(name)
+		fi, b, err := ls.LstatIfPossible(name)
 		if err != nil {
-			return nil, false, err
+			return nil, b, err
 		}
+		rfi := &realFilenameInfo{FileInfo: fi, realFilename: name}
+		if rm.Lang != "" {
+			return &realFilenameAndLangInfo{
+				lang:             rm.Lang,
+				RealFilenameInfo: rfi,
+			}, b, nil
+		}
+
+		return rfi, b, nil
 	}
 
-	if fi == nil {
-		fi, err = fs.Stat(name)
-	}
-
-	return &realFilenameInfo{FileInfo: fi, realFilename: name, virtualRoot: root}, wasLstat, err
-
+	fi, err := fs.Stat(name)
+	return fi, false, err
 }
 
-func (fs *RootMappingFs) realNameAndRoot(name string) (string, string) {
+func (fs *RootMappingFs) realNameAndRoot(name string) (string, string, RootMapping) {
 	key, val, found := fs.rootMapToReal.LongestPrefix([]byte(filepath.Clean(name)))
 	if !found {
-		return name, ""
+		return name, "", RootMapping{}
 	}
 	keystr := string(key)
 
-	filename := filepath.Join(val.(string), strings.TrimPrefix(name, keystr))
+	rm := val.(RootMapping)
+	filename := filepath.Join(rm.To, strings.TrimPrefix(name, keystr))
 
-	return filename, keystr
+	return filename, keystr, rm
 }
 
 func (f *rootMappingFile) Readdir(count int) ([]os.FileInfo, error) {
@@ -187,7 +234,35 @@ func (f *rootMappingFile) Readdir(count int) ([]os.FileInfo, error) {
 		}
 		return dirsn, nil
 	}
-	return f.File.Readdir(count)
+
+	fis, err := f.File.Readdir(count)
+	if err != nil {
+		return nil, err
+	}
+
+	if f.rm.Lang == "" {
+		return fis, nil
+	}
+
+	// Add language information to FileInfo
+
+	fisn := make([]os.FileInfo, len(fis))
+	for i, fi := range fis {
+
+		rfi := fi.(*realFilenameInfo)
+
+		lfi, err := newLanguageFileInfo(
+			fi.Name(), rfi.RealFilename(),
+			f.rm.Lang, "", rfi.VirtualRoot(),
+			langs.Languages{}.AsSet(), fi)
+
+		if err != nil {
+			return nil, err
+		}
+		fisn[i] = lfi
+	}
+
+	return fisn, nil
 
 }
 

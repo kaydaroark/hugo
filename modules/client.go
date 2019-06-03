@@ -275,10 +275,10 @@ func (c *Client) Vendor() error {
 		dir := t.Dir()
 
 		shouldCopy := func(filename string) bool {
-			base := filepath.Base(strings.TrimPrefix(filename, dir))
+			//base := filepath.Base(strings.TrimPrefix(filename, dir))
 			// Only vendor the root files + the predefined set of  folders.
-			// TODO(bep) rework this whitelist idea.
-			return base != "_vendor" //dirnames[base]
+			// TODO(bep) mod fix me, only root
+			return true // base != "_vendor" //dirnames[base]
 		}
 
 		if err := hugio.CopyDir(c.fs, dir, filepath.Join(vendorDir, t.Path()), shouldCopy); err != nil {

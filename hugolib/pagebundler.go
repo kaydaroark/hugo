@@ -19,6 +19,8 @@ import (
 	"math"
 	"path/filepath"
 
+	"github.com/gohugoio/hugo/hugofs"
+
 	"github.com/gohugoio/hugo/config"
 
 	_errors "github.com/pkg/errors"
@@ -145,9 +147,10 @@ func (s *siteContentProcessor) process(ctx context.Context) error {
 					if !ok {
 						return nil
 					}
-					f, err := s.site.BaseFs.Content.Fs.Open(file.Filename())
+					fmt.Printf(":::: ::: %T\n", file)
+					f, err := file.(hugofs.FileOpener).Open()
 					if err != nil {
-						return _errors.Wrap(err, "failed to open assets file")
+						return _errors.Wrap(err, "content assets: failed to open file")
 					}
 					filename := filepath.Join(s.site.GetTargetLanguageBasePath(), file.Path())
 					err = s.site.publish(&s.site.PathSpec.ProcessingStats.Files, filename, f)

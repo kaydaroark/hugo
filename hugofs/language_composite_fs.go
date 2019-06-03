@@ -22,6 +22,15 @@ var (
 	_ afero.Lstater = (*languageCompositeFs)(nil)
 )
 
+/*
+Replace all this with.
+
+* New read only chained filesystem
+* Stat etc. reads up the chain and returns the FI with greatest weight
+
+
+*/
+
 type languageCompositeFs struct {
 	*afero.CopyOnWriteFs
 }

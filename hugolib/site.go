@@ -1366,6 +1366,7 @@ func (s *Site) readAndProcessContent(filenames ...string) error {
 
 	mainHandler := &contentCaptureResultHandler{contentProcessors: contentProcessors, defaultContentProcessor: defaultContentProcessor}
 
+	// TODO(bep) mod
 	sourceSpec := source.NewSourceSpec(s.PathSpec, s.BaseFs.Content.Fs)
 
 	if s.running() {

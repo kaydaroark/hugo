@@ -460,15 +460,15 @@ func PrintFs(fs afero.Fs, path string, w io.Writer) {
 		return
 	}
 	afero.Walk(fs, path, func(path string, info os.FileInfo, err error) error {
-		if info != nil && !info.IsDir() {
-			s := path
+		if info != nil {
+			var s string
 			if lang, ok := info.(hugofs.LanguageAnnouncer); ok {
 				s = s + "\tLANG: " + lang.Lang()
 			}
 			if fp, ok := info.(hugofs.FilePather); ok {
 				s = s + "\tRF: " + fp.Filename() + "\tBP: " + fp.BaseDir()
 			}
-			fmt.Fprintln(w, "    ", s)
+			fmt.Fprintf(w, "    %q %s\n", path, s)
 		}
 		return nil
 	})

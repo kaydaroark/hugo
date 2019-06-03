@@ -17,7 +17,13 @@
 package modules
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/gohugoio/hugo/config"
+	"github.com/pkg/errors"
+	"github.com/spf13/afero"
 )
 
 var _ Module = (*moduleAdapter)(nil)
@@ -45,6 +51,9 @@ type Module interface {
 	// Replaced by this module.
 	Replace() Module
 
+	// Any directory remappings.
+	Mounts() []Mount
+
 	// Returns the path to this module.
 	// This will either be the module path, e.g. "github.com/gohugoio/myshortcodes",
 	// or the path below your /theme folder, e.g. "mytheme".
@@ -60,11 +69,12 @@ type Module interface {
 type Modules []Module
 
 type moduleAdapter struct {
-	path    string
-	dir     string
-	version string
-	vendor  bool
-	owner   Module
+	path      string
+	dir       string
+	version   string
+	vendor    bool
+	owner     Module
+	modImport Import
 
 	configFilename string
 	cfg            config.Provider
@@ -107,6 +117,10 @@ func (m *moduleAdapter) Replace() Module {
 	return nil
 }
 
+func (m *moduleAdapter) Mounts() []Mount {
+	return m.modImport.Mounts
+}
+
 func (m *moduleAdapter) Path() string {
 	if !m.IsGoMod() || m.path != "" {
 		return m.path
@@ -123,4 +137,54 @@ func (m *moduleAdapter) Version() string {
 		return m.version
 	}
 	return m.gomod.Version
+}
+
+func (m *moduleAdapter) validateAndApplyDefaults(fs afero.Fs) error {
+
+	baseErr := errors.Errorf("invalid module config for %q", m.Path())
+	dir := m.Dir()
+
+	for _, mnt := range m.modImport.Mounts {
+		if mnt.Source == "" || mnt.Target == "" {
+			return errors.Wrap(baseErr, "both source and target must be set")
+		}
+
+		mnt.Source = filepath.Clean(mnt.Source)
+		mnt.Target = filepath.Clean(mnt.Target)
+
+		// Verify that Source exists
+		sourceDir := filepath.Join(dir, mnt.Source)
+		_, err := fs.Stat(sourceDir)
+		if err != nil {
+			return errors.Wrapf(baseErr, "module mount source not found: %q", mnt.Source)
+		}
+
+		// Verify that target points to one of the predefined component dirs
+		targetBase := mnt.Target
+		idxPathSep := strings.Index(mnt.Target, string(os.PathSeparator))
+		if idxPathSep != -1 {
+			targetBase = mnt.Target[0:idxPathSep]
+		}
+		if !componentFoldersSet[targetBase] {
+			return errors.Wrapf(baseErr, "mount target must be one of: %v", componentFolders)
+		}
+	}
+
+	if len(m.modImport.Mounts) == 0 {
+		// Create default mount points for every component folder that
+		// exists in the module.
+		for _, cf := range componentFolders {
+			sourceDir := filepath.Join(dir, cf)
+			_, err := fs.Stat(sourceDir)
+			if err == nil {
+				m.modImport.Mounts = append(m.modImport.Mounts, Mount{
+					Source: cf,
+					Target: cf,
+				})
+			}
+		}
+	}
+
+	return nil
+
 }

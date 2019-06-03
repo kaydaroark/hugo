@@ -132,3 +132,25 @@ func createChildModMatchers(m *mods.Md, ignoreVendor, vendored bool) []string {
 	}
 	return matchers
 }
+
+func TestThemeWithContent(t *testing.T) {
+	t.Parallel()
+	assert := require.New(t)
+
+	b := newTestSitesBuilder(t)
+	b.WithConfigFile("toml", `
+baseURL="https://example.org"
+theme=["a"]
+`)
+
+	b.WithSourceFile("themes/a/content/blog/page.md", pageWithAlias)
+	b.WithNothingAdded()
+
+	b.CreateSites().Build(BuildCfg{})
+
+	assert.Equal(1, len(b.H.Sites))
+	require.Len(t, b.H.Sites[0].RegularPages(), 1)
+
+	//b.AssertFileContent("public/index.html", "For some moments the old man")
+
+}

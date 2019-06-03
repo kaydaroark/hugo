@@ -14,15 +14,18 @@
 package hugofs
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/pkg/errors"
+
+	"github.com/gohugoio/hugo/langs"
+
 	"github.com/spf13/afero"
 )
 
-const hugoFsMarker = "__hugofs"
+const hugoFsMarker = "__hugofs_"
 
 var (
 	_ LanguageAnnouncer = (*LanguageFileInfo)(nil)
@@ -53,26 +56,31 @@ type FilePather interface {
 
 // LanguageDirsMerger implements the afero.DirsMerger interface, which is used
 // to merge two directories.
+// TODO(bep) mod consider reverting this
 var LanguageDirsMerger = func(lofi, bofi []os.FileInfo) ([]os.FileInfo, error) {
-	m := make(map[string]*LanguageFileInfo)
+	m := make(map[string]os.FileInfo)
+	nameWeight := func(fi os.FileInfo) (string, int) {
+		if fil, ok := fi.(*LanguageFileInfo); ok {
+			return fil.virtualName, fil.weight
+		}
+		return fi.Name(), 0
+	}
 
 	for _, fi := range lofi {
-		fil, ok := fi.(*LanguageFileInfo)
-		if !ok {
-			return nil, fmt.Errorf("received %T, expected *LanguageFileInfo", fi)
-		}
-		m[fil.virtualName] = fil
+		name, _ := nameWeight(fi)
+		m[name] = fi
 	}
 
 	for _, fi := range bofi {
-		fil, ok := fi.(*LanguageFileInfo)
-		if !ok {
-			return nil, fmt.Errorf("received %T, expected *LanguageFileInfo", fi)
+		name, weight := nameWeight(fi)
+		existing, found := m[name]
+		var existingWeight int
+		if found {
+			_, existingWeight = nameWeight(existing)
 		}
-		existing, found := m[fil.virtualName]
 
-		if !found || existing.weight < fil.weight {
-			m[fil.virtualName] = fil
+		if !found || existingWeight < weight {
+			m[name] = fi
 		}
 	}
 
@@ -103,28 +111,28 @@ type LanguageFileInfo struct {
 	weight int
 }
 
-// Filename returns a file's real filename including the base (ie.
+// Filename returns a file's real filename including the base (e.g.
 // "/my/base/sect/page.md").
 func (fi *LanguageFileInfo) Filename() string {
 	return fi.realFilename
 }
 
-// Path returns a file's filename relative to the base (ie. "sect/page.md").
+// Path returns a file's filename relative to the base (e.g. "sect/page.md").
 func (fi *LanguageFileInfo) Path() string {
 	return fi.relFilename
 }
 
-// RealName returns a file's real base name (ie. "page.md").
+// RealName returns a file's real base name (e.g. "page.md").
 func (fi *LanguageFileInfo) RealName() string {
 	return fi.realName
 }
 
-// BaseDir returns a file's base directory (ie. "/my/base").
+// BaseDir returns a file's base directory (e.g. "/my/base").
 func (fi *LanguageFileInfo) BaseDir() string {
 	return fi.baseDir
 }
 
-// Lang returns a file's language (ie. "sv").
+// Lang returns a file's language (e.g. "sv").
 func (fi *LanguageFileInfo) Lang() string {
 	return fi.lang
 }
@@ -137,7 +145,7 @@ func (fi *LanguageFileInfo) TranslationBaseName() string {
 
 // Name is the name of the file within this filesystem without any path info.
 // It will be marked with language information so we can identify it as ours
-// (ie. "__hugofs_sv_page.md").
+// (e.g. "__sv__hugofs_page.md").
 func (fi *LanguageFileInfo) Name() string {
 	return fi.name
 }
@@ -171,30 +179,44 @@ func (l *languageFile) Readdir(c int) (ofi []os.FileInfo, err error) {
 // LanguageFs represents a language filesystem.
 type LanguageFs struct {
 	// This Fs is usually created with a BasePathFs
-	basePath   string
-	lang       string
-	nameMarker string
-	languages  map[string]bool
+	basePath string
+
+	lang      string
+	languages map[string]bool
+
 	afero.Fs
 }
 
 // NewLanguageFs creates a new language filesystem.
 func NewLanguageFs(lang string, languages map[string]bool, fs afero.Fs) *LanguageFs {
-	if lang == "" {
-		panic("no lang set for the language fs")
-	}
+
 	var basePath string
 
 	if bfs, ok := fs.(*afero.BasePathFs); ok {
 		basePath, _ = bfs.RealPath("")
 	}
 
-	marker := hugoFsMarker + "_" + lang + "_"
-
-	return &LanguageFs{lang: lang, languages: languages, basePath: basePath, Fs: fs, nameMarker: marker}
+	return &LanguageFs{lang: lang, languages: languages, basePath: basePath, Fs: fs}
 }
 
-// Lang returns a language filesystem's language (ie. "sv").
+func (fs *LanguageFs) getLang(fi os.FileInfo) (string, error) {
+	if fs.lang != "" {
+		return fs.lang, nil
+	}
+	if la, ok := fi.(LanguageAnnouncer); ok {
+		return la.Lang(), nil
+	}
+
+	return "", errors.New("failed to resolve language")
+
+}
+
+func (fs *LanguageFs) marker(lang string) string {
+	return "__" + lang + hugoFsMarker
+}
+
+// Lang returns a language filesystem's language (e.g. "sv").
+// TODO(bep) mod remove
 func (fs *LanguageFs) Lang() string {
 	return fs.lang
 }
@@ -263,11 +285,10 @@ func (fs *LanguageFs) realPath(name string) (string, error) {
 }
 
 func (fs *LanguageFs) realName(name string) (string, error) {
-	if strings.Contains(name, hugoFsMarker) {
-		if !strings.Contains(name, fs.nameMarker) {
-			return "", os.ErrNotExist
-		}
-		return strings.Replace(name, fs.nameMarker, "", 1), nil
+	markerIdx := strings.Index(name, hugoFsMarker)
+
+	if markerIdx != -1 {
+		return name[markerIdx+len(hugoFsMarker):], nil
 	}
 
 	if fs.basePath == "" {
@@ -277,21 +298,50 @@ func (fs *LanguageFs) realName(name string) (string, error) {
 	return strings.TrimPrefix(name, fs.basePath), nil
 }
 
-func (fs *LanguageFs) newLanguageFileInfo(filename string, fi os.FileInfo) (*LanguageFileInfo, error) {
+func (fs *LanguageFs) newLanguageFileInfo(name string, fi os.FileInfo) (*LanguageFileInfo, error) {
+	name = filepath.Clean(name)
+	realFilename, err := fs.realPath(name)
+	if err != nil {
+		return nil, err
+	}
+
+	lang, err := fs.getLang(fi)
+	if err != nil {
+		return nil, err
+	}
+	nameMarker := fs.marker(lang)
+
+	return newLanguageFileInfo(
+		name, realFilename,
+		lang, nameMarker, fs.basePath,
+		fs.languages, fi)
+
+}
+
+func newLanguageFileInfoFromRealFilenameInfo(rfi RealFilenameInfo, filename, lang string) (*LanguageFileInfo, error) {
+	return newLanguageFileInfo(
+		filename, rfi.RealFilename(),
+		lang, "todo", "todobase",
+		langs.Languages{}.AsSet(), rfi,
+	)
+}
+
+func newLanguageFileInfo(
+	filename, realFilename,
+	fsLang, nameMarker, basePath string,
+	languages map[string]bool,
+
+	fi os.FileInfo) (*LanguageFileInfo, error) {
+
 	filename = filepath.Clean(filename)
 	_, name := filepath.Split(filename)
 
 	realName := name
 	virtualName := name
 
-	realPath, err := fs.realPath(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	lang := fs.Lang()
-
 	baseNameNoExt := ""
+	lang := fsLang
+	weight := 1
 
 	if !fi.IsDir() {
 
@@ -309,38 +359,38 @@ func (fs *LanguageFs) newLanguageFileInfo(filename string, fi os.FileInfo) (*Lan
 		fileLangExt := filepath.Ext(baseNameNoExt)
 		fileLang := strings.TrimPrefix(fileLangExt, ".")
 
-		if fs.languages[fileLang] {
+		if languages[fileLang] {
 			lang = fileLang
+
 			baseNameNoExt = strings.TrimSuffix(baseNameNoExt, fileLangExt)
 		}
 
 		// This connects the filename to the filesystem, not the language.
 		virtualName = baseNameNoExt + "." + lang + ext
 
-		name = fs.nameMarker + name
+		name = nameMarker + name
 	}
 
-	weight := 1
-	// If this file's language belongs in this directory, add some weight to it
-	// to make it more important.
-	if lang == fs.Lang() {
-		weight = 2
+	if lang == fsLang {
+		// This file's language belongs in this directory, add some weight to it
+		// to make it more important.
+		weight++
 	}
 
-	if fi.IsDir() {
+	if basePath != "" && fi.IsDir() {
 		// For directories we always want to start from the union view.
-		realPath = strings.TrimPrefix(realPath, fs.basePath)
+		realFilename = strings.TrimPrefix(realFilename, basePath)
 	}
 
 	return &LanguageFileInfo{
 		lang:                lang,
 		weight:              weight,
-		realFilename:        realPath,
+		realFilename:        realFilename,
 		realName:            realName,
-		relFilename:         strings.TrimPrefix(strings.TrimPrefix(realPath, fs.basePath), string(os.PathSeparator)),
+		relFilename:         strings.TrimPrefix(strings.TrimPrefix(realFilename, basePath), string(os.PathSeparator)),
 		name:                name,
 		virtualName:         virtualName,
 		translationBaseName: baseNameNoExt,
-		baseDir:             fs.basePath,
+		baseDir:             basePath,
 		FileInfo:            fi}, nil
 }

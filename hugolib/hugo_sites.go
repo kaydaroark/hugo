@@ -818,7 +818,7 @@ func (h *HugoSites) handleDataFile(r source.ReadableFile) error {
 
 	f, err := r.Open()
 	if err != nil {
-		return errors.Wrapf(err, "Failed to open data file %q:", r.LogicalName())
+		return errors.Wrapf(err, "data: failed to open %q:", r.LogicalName())
 	}
 	defer f.Close()
 

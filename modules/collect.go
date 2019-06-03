@@ -114,7 +114,7 @@ func (c *collector) getVendoredDir(path string) (vendoredModule, bool) {
 // TODO(bep) mod
 const zeroVersion = ""
 
-func (c *collector) add(owner Module, modulePath string) (Module, error) {
+func (c *collector) add(owner Module, moduleImport Import) (Module, error) {
 	var (
 		mod       *goModule
 		moduleDir string
@@ -122,6 +122,7 @@ func (c *collector) add(owner Module, modulePath string) (Module, error) {
 		vendored  bool
 	)
 
+	modulePath := moduleImport.Path
 	realOwner := owner
 
 	if !c.ignoreVendor {
@@ -183,15 +184,20 @@ func (c *collector) add(owner Module, modulePath string) (Module, error) {
 	}
 
 	ma := &moduleAdapter{
-		dir:     moduleDir,
-		vendor:  vendored,
-		gomod:   mod,
-		version: version,
+		dir:       moduleDir,
+		vendor:    vendored,
+		gomod:     mod,
+		modImport: moduleImport,
+		version:   version,
 		// This may be the owner of the _vendor dir
 		owner: realOwner,
 	}
 	if mod == nil {
 		ma.path = modulePath
+	}
+
+	if err := ma.validateAndApplyDefaults(c.fs); err != nil {
+		return nil, err
 	}
 
 	if err := c.applyThemeConfig(ma); err != nil {
@@ -205,9 +211,8 @@ func (c *collector) add(owner Module, modulePath string) (Module, error) {
 
 func (c *collector) addAndRecurse(owner Module, moduleConfig Config) error {
 	for _, moduleImport := range moduleConfig.Imports {
-		modulePath := moduleImport.Path
-		if !c.isSeen(modulePath) {
-			tc, err := c.add(owner, modulePath)
+		if !c.isSeen(moduleImport.Path) {
+			tc, err := c.add(owner, moduleImport)
 			if err != nil {
 				return err
 			}
@@ -281,6 +286,7 @@ func (c *collector) collect() error {
 	}
 
 	projectMod := &moduleAdapter{
+		// TODO(bep) mod import
 		path:  path,
 		dir:   c.workingDir,
 		gomod: gomod,

@@ -75,7 +75,7 @@ type Paths struct {
 	DefaultContentLanguage         string
 	multilingual                   bool
 
-	AllThemes     modules.Modules
+	AllModules    modules.Modules
 	ModulesClient *modules.Client
 }
 
@@ -176,8 +176,8 @@ func New(fs *hugofs.Fs, cfg config.Provider) (*Paths, error) {
 	}
 
 	// TODO(bep) improve.
-	if cfg.IsSet("allThemes") {
-		p.AllThemes = cfg.Get("allThemes").(modules.Modules)
+	if cfg.IsSet("allModules") {
+		p.AllModules = cfg.Get("allModules").(modules.Modules)
 	} else {
 		modConfig, err := modules.DecodeConfig(cfg)
 		if err != nil {
@@ -200,7 +200,7 @@ func New(fs *hugofs.Fs, cfg config.Provider) (*Paths, error) {
 			return nil, err
 		}
 		p.ModulesClient = modulesClient
-		p.AllThemes = themeConfig.Modules
+		p.AllModules = themeConfig.Modules
 	}
 
 	if cfg.IsSet("modulesClient") {
@@ -232,7 +232,7 @@ func (p *Paths) Lang() string {
 // ThemeSet checks whether a theme is in use or not.
 // TODO(bep) mod remove this
 func (p *Paths) ThemeSet() bool {
-	return len(p.AllThemes) > 0
+	return len(p.AllModules) > 0
 }
 
 func (p *Paths) GetTargetLanguageBasePath() string {
