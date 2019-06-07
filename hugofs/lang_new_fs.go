@@ -33,6 +33,32 @@ var (
 	_ LanguageAnnouncer = (*lingoFileInfo)(nil)
 )
 
+type LangFilePather interface {
+	LanguageAnnouncer
+	FilePather
+}
+
+// LanguageAnnouncer is aware of its language.
+type LanguageAnnouncer interface {
+	Lang() string
+	TranslationBaseName() string
+}
+
+// FilePather is aware of its file's location.
+type FilePather interface {
+	// Filename gets the full path and filename to the file.
+	Filename() string
+
+	// Path gets the content relative path including file name and extension.
+	// The directory is relative to the content root where "content" is a broad term.
+	Path() string
+
+	// RealName is FileInfo.Name in its original form.
+	RealName() string
+
+	BaseDir() string
+}
+
 func NewLingoFs(langs map[string]bool, sources ...MetaFs) (*LingoFs, error) {
 	if len(sources) < 2 {
 		return nil, errors.New("requires at least 2 filesystems")
