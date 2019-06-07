@@ -360,7 +360,7 @@ func (c *capturer) handleDir(dirname fsFi) error {
 
 		if !fi.IsDir() {
 			fip := fi.(pathLangFileFi)
-			tp, isContent := classifyBundledFile(fip.RealName())
+			tp, isContent := classifyBundledFile(fip.Name())
 
 			fileBundleTypes[i] = tp
 			if !isBranch {
@@ -571,7 +571,6 @@ func (c *capturer) readDir(dirname fsFi) ([]os.FileInfo, error) {
 		return nil, nil
 	}
 
-	fmt.Printf(":::: %T %s\n", c.fs, dirname.Name())
 	dir, err := dirname.(hugofs.FileOpener).Open()
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open dir %q", dirname.Name())

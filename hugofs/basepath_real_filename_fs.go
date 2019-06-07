@@ -39,9 +39,10 @@ type VirtualFileInfo interface {
 }
 
 type realFilenameAndLangInfo struct {
-	RealFilenameInfo
-	VirtualFileInfo
-	lang string
+	os.FileInfo
+	filename string
+	root     string
+	lang     string
 }
 
 func (f *realFilenameAndLangInfo) Lang() string {
@@ -52,18 +53,26 @@ func (f *realFilenameAndLangInfo) TranslationBaseName() string {
 	panic("not implemented")
 }
 
+func (f *realFilenameAndLangInfo) RealFilename() string {
+	return f.filename
+}
+
+func (f *realFilenameAndLangInfo) VirtualRoot() string {
+	return f.root
+}
+
 type realFilenameInfo struct {
 	os.FileInfo
-	realFilename string
-	virtualRoot  string
+	filename string
+	root  string
 }
 
 func (f *realFilenameInfo) RealFilename() string {
-	return f.realFilename
+	return f.filename
 }
 
 func (f *realFilenameInfo) VirtualRoot() string {
-	return f.virtualRoot
+	return f.root
 }
 
 // NewBasePathRealFilenameFs returns a new BasePathRealFilenameFs instance
@@ -98,7 +107,7 @@ func (b *BasePathRealFilenameFs) Stat(name string) (os.FileInfo, error) {
 		return nil, &os.PathError{Op: "stat", Path: name, Err: err}
 	}
 
-	return &realFilenameInfo{FileInfo: fi, realFilename: filename, virtualRoot: b.basePath}, nil
+	return &realFilenameInfo{FileInfo: fi, filename: filename, root: b.basePath}, nil
 }
 
 // LstatIfPossible returns the os.FileInfo structure describing a given file.
@@ -120,7 +129,7 @@ func (b *BasePathRealFilenameFs) LstatIfPossible(name string) (os.FileInfo, bool
 		return nil, false, &os.PathError{Op: "lstat", Path: name, Err: err}
 	}
 
-	return &realFilenameInfo{FileInfo: fi, realFilename: filename, virtualRoot: b.basePath}, ok, nil
+	return &realFilenameInfo{FileInfo: fi, filename: filename, root: b.basePath}, ok, nil
 }
 
 // Open opens the named file for reading.

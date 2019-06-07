@@ -147,7 +147,6 @@ func (s *siteContentProcessor) process(ctx context.Context) error {
 					if !ok {
 						return nil
 					}
-					fmt.Printf(":::: ::: %T\n", file)
 					f, err := file.(hugofs.FileOpener).Open()
 					if err != nil {
 						return _errors.Wrap(err, "content assets: failed to open file")

@@ -15,6 +15,7 @@ package hugofs
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -36,21 +37,27 @@ func TestLingoFs(t *testing.T) {
 		langs.NewLanguage("sv", v),
 	}.AsSet()
 
-	enFs := MetaFs{TheLang: "en", Fs: afero.NewMemMapFs()}
-	svFs := MetaFs{TheLang: "sv", Fs: afero.NewMemMapFs()}
+	enFs := MetaFs{TheLang: "en", TheFs: afero.NewMemMapFs()}
+	svFs := MetaFs{TheLang: "sv", TheFs: afero.NewMemMapFs()}
 
 	for _, fs := range []MetaFs{enFs, svFs} {
-		assert.NoError(afero.WriteFile(fs, filepath.FromSlash("blog/a.txt"), []byte("abc"), 0777))
+		assert.NoError(afero.WriteFile(fs.Fs(), filepath.FromSlash("blog/a.txt"), []byte("abc"), 0777))
 
 		for _, fs2 := range []MetaFs{enFs, svFs} {
 			lingoName := fmt.Sprintf("lingo.%s.txt", fs2.TheLang)
-			assert.NoError(afero.WriteFile(fs, filepath.FromSlash("blog/"+lingoName), []byte(lingoName), 0777))
+			assert.NoError(afero.WriteFile(fs.Fs(), filepath.FromSlash("blog/"+lingoName), []byte(lingoName), 0777))
 		}
 
 	}
 
 	lfs, err := NewLingoFs(langSet, enFs, svFs)
 	assert.NoError(err)
+
+	afero.Walk(lfs, "", func(path string, info os.FileInfo, err error) error {
+		//fmt.Println(":::", path)
+
+		return nil
+	})
 
 	blog, err := lfs.Open("blog")
 	assert.NoError(err)

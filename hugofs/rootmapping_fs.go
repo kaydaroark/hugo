@@ -14,6 +14,7 @@
 package hugofs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,24 +142,37 @@ func (fs *RootMappingFs) Stat(name string) (os.FileInfo, error) {
 		return nil, err
 	}
 
-	rfi, ok := fi.(RealFilenameInfo)
-
-	if !ok {
-		rfi = &realFilenameInfo{FileInfo: fi, realFilename: realName}
+	var (
+		filename string
+		root     string
+	)
+	if rfi, ok := fi.(RealFilenameInfo); ok {
+		filename = rfi.RealFilename()
 	}
 
-	vfi, _ := fi.(VirtualFileInfo)
-
-	if rm.Lang != "" {
-		return &realFilenameAndLangInfo{
-			lang:             rm.Lang,
-			RealFilenameInfo: rfi,
-			VirtualFileInfo:  vfi,
-		}, nil
+	if vfi, ok := fi.(VirtualFileInfo); ok {
+		root = vfi.VirtualRoot()
 	}
 
-	return rfi, nil
+	return decorateFileInfo(fi, filename, root, rm.Lang), nil
 
+}
+
+func decorateFileInfo(fi os.FileInfo, filename, root, lang string) os.FileInfo {
+	if lang == "" {
+		return &realFilenameInfo{
+			FileInfo: fi,
+			filename: filename,
+			root:     root,
+		}
+	}
+
+	return &realFilenameAndLangInfo{
+		FileInfo: fi,
+		filename: filename,
+		root:     root,
+		lang:     lang,
+	}
 }
 
 func (fs *RootMappingFs) isRoot(name string) bool {
@@ -188,22 +202,18 @@ func (fs *RootMappingFs) LstatIfPossible(name string) (os.FileInfo, bool, error)
 		return newRootMappingDirFileInfo(name), false, nil
 	}
 
-	name, _, rm := fs.realNameAndRoot(name)
+	name, foo, rm := fs.realNameAndRoot(name)
+	fmt.Println("RN", name, foo)
 
 	if ls, ok := fs.Fs.(afero.Lstater); ok {
 		fi, b, err := ls.LstatIfPossible(name)
 		if err != nil {
 			return nil, b, err
 		}
-		rfi := &realFilenameInfo{FileInfo: fi, realFilename: name}
-		if rm.Lang != "" {
-			return &realFilenameAndLangInfo{
-				lang:             rm.Lang,
-				RealFilenameInfo: rfi,
-			}, b, nil
-		}
 
-		return rfi, b, nil
+		// TODO(bep) mod
+		return decorateFileInfo(fi, name, "", rm.Lang), b, nil
+
 	}
 
 	fi, err := fs.Stat(name)

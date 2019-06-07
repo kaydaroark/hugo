@@ -14,7 +14,6 @@
 package hugofs
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +40,10 @@ type lingoFileInfo struct {
 	lang                string
 	translationBaseName string
 
+	filename string // the real filename in the source filesystem
+	baseDir  string
+	path     string
+
 	openFileFunc
 
 	// Set when there is language information in the filename.
@@ -51,27 +54,27 @@ func (fi lingoFileInfo) Lang() string {
 	return fi.lang
 }
 
+// TranslationBaseName returns the base filename without any language
+// or file extension.
+// E.g. myarticle.en.md becomes myarticle.
 func (fi lingoFileInfo) TranslationBaseName() string {
 	return fi.translationBaseName
 }
 
 func (fi lingoFileInfo) Filename() string {
-	//return "Filename: TODO"
-	return fi.Name()
+	return fi.filename
 }
 
 func (fi lingoFileInfo) Path() string {
-	//return "Filename: TODO"
-	return fi.Name()
+	return fi.path
 }
 
 func (fi lingoFileInfo) RealName() string {
-	// TODO(bep) remove this
-	return fi.Name()
+	panic("remove me")
 }
 
 func (fi lingoFileInfo) BaseDir() string {
-	return "BaseDir: TODO"
+	return fi.baseDir
 }
 
 /*
@@ -245,11 +248,31 @@ func (fs *LingoFs) applyMeta(name string, fis []os.FileInfo) []os.FileInfo {
 			lang = fileLang
 		}
 
+		var (
+			filename string
+			baseDir  string
+			path     string
+		)
+
+		if vfi, ok := fi.(VirtualFileInfo); ok {
+			baseDir = vfi.VirtualRoot()
+			path = strings.TrimPrefix(filename, baseDir)
+		}
+
+		if rfi, ok := fi.(RealFilenameInfo); ok {
+			filename = rfi.RealFilename()
+		}
+
 		fisn[i] = &lingoFileInfo{
 			FileInfo:            fi,
 			lang:                lang,
 			weight:              weight,
 			translationBaseName: translationBaseName,
+
+			filename: filename,
+			path:     path,
+			baseDir:  baseDir,
+
 			openFileFunc: func() (afero.File, error) {
 				return fs.source.Fs().Open(filepath.Join(name, fi.Name()))
 			},
@@ -309,7 +332,6 @@ func (fs *LingoFs) filterDuplicates(fis []os.FileInfo) []os.FileInfo {
 }
 
 func (fs *LingoFs) readDirs(name string, count int) ([]os.FileInfo, error) {
-	fmt.Println(">>> READ DIRs", name)
 
 	collect := func(current *LingoFs) ([]os.FileInfo, error) {
 		d, err := current.source.Fs().Open(name)
@@ -330,14 +352,9 @@ func (fs *LingoFs) readDirs(name string, count int) ([]os.FileInfo, error) {
 
 	var dirs []os.FileInfo
 
-	bailout := 0
-
 	current := fs
 	for current != nil {
-		bailout++
-		if bailout > 10 {
-			panic("bailout")
-		}
+
 		fis, err := collect(current)
 		if err != nil {
 			return nil, err
@@ -488,7 +505,9 @@ func (fs *LingoFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
 	if fi.IsDir() {
 		return fs.newDirOpener(name, fi), false, nil
 	}
-	panic(fmt.Sprintf("file not implemented: %q", name))
+
+	return nil, false, errors.Errorf("lstat: files not supported: %q", name)
+
 }
 
 func (fs *LingoFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {

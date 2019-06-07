@@ -277,10 +277,10 @@ func (sp *SourceSpec) NewFileInfo(baseDir, filename string, isLeafBundle bool, f
 		lang:                lang,
 		ext:                 ext,
 		dir:                 dir,
-		relDir:              relDir,
-		relPath:             relPath,
+		relDir:              relDir,  // Dir()
+		relPath:             relPath, // Path()
 		name:                name,
-		baseName:            baseName,
+		baseName:            baseName, // BaseFileName()
 		translationBaseName: translationBaseName,
 		isLeafBundle:        isLeafBundle,
 	}
