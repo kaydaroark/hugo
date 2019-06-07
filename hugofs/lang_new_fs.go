@@ -33,48 +33,33 @@ var (
 	_ LanguageAnnouncer = (*lingoFileInfo)(nil)
 )
 
-// TODO(bep) mods names, names, names
-type lingoFileInfo struct {
-	os.FileInfo
+func NewLingoFs(langs map[string]bool, sources ...MetaFs) (*LingoFs, error) {
+	if len(sources) < 2 {
+		return nil, errors.New("requires at least 2 filesystems")
+	}
+	first := sources[0]
+	rest := sources[1:]
 
-	lang                string
-	translationBaseName string
+	common := &lingoFsCommon{
+		languages: langs,
+	}
 
-	filename string // the real filename in the source filesystem
-	baseDir  string
-	path     string
+	root := &LingoFs{lingoFsCommon: common, source: first}
+	root.root = root
 
-	openFileFunc
+	parent := root
+	for _, fs := range rest {
+		lfs := &LingoFs{lingoFsCommon: common, source: fs, root: root}
+		parent.child = lfs
+		parent = lfs
 
-	// Set when there is language information in the filename.
-	weight int
+	}
+
+	return root, nil
 }
 
-func (fi lingoFileInfo) Lang() string {
-	return fi.lang
-}
-
-// TranslationBaseName returns the base filename without any language
-// or file extension.
-// E.g. myarticle.en.md becomes myarticle.
-func (fi lingoFileInfo) TranslationBaseName() string {
-	return fi.translationBaseName
-}
-
-func (fi lingoFileInfo) Filename() string {
-	return fi.filename
-}
-
-func (fi lingoFileInfo) Path() string {
-	return fi.path
-}
-
-func (fi lingoFileInfo) RealName() string {
-	panic("remove me")
-}
-
-func (fi lingoFileInfo) BaseDir() string {
-	return fi.baseDir
+type FileOpener interface {
+	Open() (afero.File, error)
 }
 
 /*
@@ -101,24 +86,76 @@ en/foo.ReadDir index.md  sar.en.txt (sv)
 */
 
 type LangFsProvider interface {
-	Lang() string
 	Fs() afero.Fs
+	Lang() string
 }
 
-// MetaFs wraps a afero.Fs with some metadata about the Fs.
-// TODO(bep) remove this
-type MetaFs struct {
-	TheFs afero.Fs
-
-	TheLang string
+// TODO(bep) mod dir files same name different languages
+type LingoDir struct {
+	fs      *LingoFs
+	fi      os.FileInfo // TODO(bep) mod remove
+	dirname string
 }
 
-func (m MetaFs) Lang() string {
-	return m.TheLang
+func (f *LingoDir) Close() error {
+	return nil
 }
 
-func (m MetaFs) Fs() afero.Fs {
-	return m.TheFs
+func (f *LingoDir) Name() string {
+	panic("not implemented")
+}
+
+func (f *LingoDir) Read(p []byte) (n int, err error) {
+	panic("not implemented")
+}
+
+func (f *LingoDir) ReadAt(p []byte, off int64) (n int, err error) {
+	panic("not implemented")
+}
+
+func (f *LingoDir) Readdir(count int) ([]os.FileInfo, error) {
+	return f.fs.readDirs(f.dirname, count)
+}
+
+func (f *LingoDir) Readdirnames(count int) ([]string, error) {
+	dirsi, err := f.Readdir(count)
+	if err != nil {
+		return nil, err
+	}
+
+	dirs := make([]string, len(dirsi))
+	for i, d := range dirsi {
+		dirs[i] = d.Name()
+	}
+	return dirs, nil
+}
+
+func (f *LingoDir) Seek(offset int64, whence int) (int64, error) {
+	panic("not implemented")
+}
+
+func (f *LingoDir) Stat() (os.FileInfo, error) {
+	panic("not implemented")
+}
+
+func (f *LingoDir) Sync() error {
+	panic("not implemented")
+}
+
+func (f *LingoDir) Truncate(size int64) error {
+	panic("not implemented")
+}
+
+func (f *LingoDir) Write(p []byte) (n int, err error) {
+	panic("not implemented")
+}
+
+func (f *LingoDir) WriteAt(p []byte, off int64) (n int, err error) {
+	panic("not implemented")
+}
+
+func (f *LingoDir) WriteString(s string) (ret int, err error) {
+	panic("not implemented")
 }
 
 type LingoFs struct {
@@ -128,104 +165,94 @@ type LingoFs struct {
 	source LangFsProvider
 }
 
-type lingoFsCommon struct {
-	languages map[string]bool
+func (fs *LingoFs) Chmod(n string, m os.FileMode) error {
+	return syscall.EPERM
 }
 
-// Try to extract the language from the given filename.
-// Any valid language identificator in the name will win over the
-// language set on the file system, e.g. "mypost.en.md".
-func (l *lingoFsCommon) langInfoFrom(name string) (string, string) {
-	var lang string
+func (fs *LingoFs) Chtimes(n string, a, m time.Time) error {
+	return syscall.EPERM
+}
 
-	baseName := filepath.Base(name)
-	ext := filepath.Ext(baseName)
-	translationBaseName := baseName
-
-	if ext != "" {
-		translationBaseName = strings.TrimSuffix(translationBaseName, ext)
+// TODO(bep) mod lstat
+func (fs *LingoFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
+	fi, _, err := fs.pickFirst(name)
+	if err != nil {
+		return nil, false, err
+	}
+	if fi.IsDir() {
+		return fs.newDirOpener(name, fi), false, nil
 	}
 
-	fileLangExt := filepath.Ext(translationBaseName)
-	fileLang := strings.TrimPrefix(fileLangExt, ".")
-
-	if l.languages[fileLang] {
-		lang = fileLang
-
-		translationBaseName = strings.TrimSuffix(translationBaseName, fileLangExt)
-	}
-
-	return lang, translationBaseName
+	return nil, false, errors.Errorf("lstat: files not supported: %q", name)
 
 }
 
-func NewLingoFs(langs map[string]bool, sources ...MetaFs) (*LingoFs, error) {
-	if len(sources) < 2 {
-		return nil, errors.New("requires at least 2 filesystems")
-	}
-	first := sources[0]
-	rest := sources[1:]
-
-	common := &lingoFsCommon{
-		languages: langs,
-	}
-
-	root := &LingoFs{lingoFsCommon: common, source: first}
-	root.root = root
-
-	parent := root
-	for _, fs := range rest {
-		lfs := &LingoFs{lingoFsCommon: common, source: fs, root: root}
-		parent.child = lfs
-		parent = lfs
-
-	}
-
-	return root, nil
+func (fs *LingoFs) Mkdir(n string, p os.FileMode) error {
+	return syscall.EPERM
 }
 
-func (fs *LingoFs) pickFirst(name string) (os.FileInfo, *LingoFs, error) {
-	current := fs
-	for current != nil {
-		fi, err := current.source.Fs().Stat(name)
-		if err == nil {
-			// Gotta match!
-			return fi, current, nil
-		}
-
-		if !os.IsNotExist(err) {
-			// Real error
-			return nil, nil, err
-		}
-
-		// Continue
-		current = current.child
-
-	}
-
-	// Not found
-	return nil, nil, os.ErrNotExist
+func (fs *LingoFs) MkdirAll(n string, p os.FileMode) error {
+	return syscall.EPERM
 }
 
-func (fs *LingoFs) collectFileInfos(root *LingoFs, name string) ([]os.FileInfo, error) {
-	var fis []os.FileInfo
-	current := root
-	for current != nil {
-		fi, err := current.source.Fs().Stat(name)
-		if err == nil {
-			// Gotta match!
-			fis = append(fis, fi)
-		} else if !os.IsNotExist(err) {
-			// Real error
-			return nil, err
-		}
+func (fs *LingoFs) Name() string {
+	return "WeightedFileSystem"
+}
 
-		// Continue
-		current = current.child
-
+func (fs *LingoFs) Open(name string) (afero.File, error) {
+	fi, lfs, err := fs.pickFirst(name)
+	if err != nil {
+		return nil, err
 	}
 
-	return fis, nil
+	if !fi.IsDir() {
+		panic("currently only dirs in here")
+	}
+
+	return &LingoDir{
+		fs:      lfs,
+		fi:      fi,
+		dirname: name,
+	}, nil
+
+}
+
+func (fs *LingoFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	panic("not implemented")
+}
+
+func (fs *LingoFs) ReadDir(name string) ([]os.FileInfo, error) {
+	panic("not implemented")
+}
+
+func (fs *LingoFs) Remove(n string) error {
+	return syscall.EPERM
+}
+
+func (fs *LingoFs) RemoveAll(p string) error {
+	return syscall.EPERM
+}
+
+func (fs *LingoFs) Rename(o, n string) error {
+	return syscall.EPERM
+}
+
+func (fs *LingoFs) Stat(name string) (os.FileInfo, error) {
+	fi, _, err := fs.LstatIfPossible(name)
+	return fi, err
+}
+
+func (fs *LingoFs) Create(n string) (afero.File, error) {
+	return nil, syscall.EPERM
+}
+
+func (fs *LingoFs) newDirOpener(name string, fi os.FileInfo) fileOpener {
+	return fileOpener{
+		FileInfo: fi,
+		openFileFunc: func() (afero.File, error) {
+			return fs.Open(name)
+		},
+	}
 }
 
 func (fs *LingoFs) applyMeta(name string, fis []os.FileInfo) []os.FileInfo {
@@ -282,6 +309,27 @@ func (fs *LingoFs) applyMeta(name string, fis []os.FileInfo) []os.FileInfo {
 	return fisn
 }
 
+func (fs *LingoFs) collectFileInfos(root *LingoFs, name string) ([]os.FileInfo, error) {
+	var fis []os.FileInfo
+	current := root
+	for current != nil {
+		fi, err := current.source.Fs().Stat(name)
+		if err == nil {
+			// Gotta match!
+			fis = append(fis, fi)
+		} else if !os.IsNotExist(err) {
+			// Real error
+			return nil, err
+		}
+
+		// Continue
+		current = current.child
+
+	}
+
+	return fis, nil
+}
+
 func (fs *LingoFs) filterDuplicates(fis []os.FileInfo) []os.FileInfo {
 	type idxWeight struct {
 		idx    int
@@ -331,6 +379,29 @@ func (fs *LingoFs) filterDuplicates(fis []os.FileInfo) []os.FileInfo {
 	return fis
 }
 
+func (fs *LingoFs) pickFirst(name string) (os.FileInfo, *LingoFs, error) {
+	current := fs
+	for current != nil {
+		fi, err := current.source.Fs().Stat(name)
+		if err == nil {
+			// Gotta match!
+			return fi, current, nil
+		}
+
+		if !os.IsNotExist(err) {
+			// Real error
+			return nil, nil, err
+		}
+
+		// Continue
+		current = current.child
+
+	}
+
+	// Not found
+	return nil, nil, os.ErrNotExist
+}
+
 func (fs *LingoFs) readDirs(name string, count int) ([]os.FileInfo, error) {
 
 	collect := func(current *LingoFs) ([]os.FileInfo, error) {
@@ -373,107 +444,20 @@ func (fs *LingoFs) readDirs(name string, count int) ([]os.FileInfo, error) {
 
 }
 
-func (fs *LingoFs) Open(name string) (afero.File, error) {
-	fi, lfs, err := fs.pickFirst(name)
-	if err != nil {
-		return nil, err
-	}
+// MetaFs wraps a afero.Fs with some metadata about the Fs.
+// TODO(bep) remove this
+type MetaFs struct {
+	TheFs afero.Fs
 
-	if !fi.IsDir() {
-		panic("currently only dirs in here")
-	}
-
-	return &LingoDir{
-		fs:      lfs,
-		fi:      fi,
-		dirname: name,
-	}, nil
-
+	TheLang string
 }
 
-// TODO(bep) mod dir files same name different languages
-type LingoDir struct {
-	fs      *LingoFs
-	fi      os.FileInfo // TODO(bep) mod remove
-	dirname string
+func (m MetaFs) Fs() afero.Fs {
+	return m.TheFs
 }
 
-func (f *LingoDir) Readdir(count int) ([]os.FileInfo, error) {
-	return f.fs.readDirs(f.dirname, count)
-}
-
-func (f *LingoDir) Readdirnames(count int) ([]string, error) {
-	dirsi, err := f.Readdir(count)
-	if err != nil {
-		return nil, err
-	}
-
-	dirs := make([]string, len(dirsi))
-	for i, d := range dirsi {
-		dirs[i] = d.Name()
-	}
-	return dirs, nil
-}
-
-func (f *LingoDir) Close() error {
-	return nil
-}
-
-func (f *LingoDir) Read(p []byte) (n int, err error) {
-	panic("not implemented")
-}
-
-func (f *LingoDir) ReadAt(p []byte, off int64) (n int, err error) {
-	panic("not implemented")
-}
-
-func (f *LingoDir) Seek(offset int64, whence int) (int64, error) {
-	panic("not implemented")
-}
-
-func (f *LingoDir) Write(p []byte) (n int, err error) {
-	panic("not implemented")
-}
-
-func (f *LingoDir) WriteAt(p []byte, off int64) (n int, err error) {
-	panic("not implemented")
-}
-
-func (f *LingoDir) Name() string {
-	panic("not implemented")
-}
-
-func (f *LingoDir) Stat() (os.FileInfo, error) {
-	panic("not implemented")
-}
-
-func (f *LingoDir) Sync() error {
-	panic("not implemented")
-}
-
-func (f *LingoDir) Truncate(size int64) error {
-	panic("not implemented")
-}
-
-func (f *LingoDir) WriteString(s string) (ret int, err error) {
-	panic("not implemented")
-}
-
-func (fs *LingoFs) ReadDir(name string) ([]os.FileInfo, error) {
-	panic("not implemented")
-}
-
-func (fs *LingoFs) Name() string {
-	return "WeightedFileSystem"
-}
-
-func (fs *LingoFs) Stat(name string) (os.FileInfo, error) {
-	fi, _, err := fs.LstatIfPossible(name)
-	return fi, err
-}
-
-type FileOpener interface {
-	Open() (afero.File, error)
+func (m MetaFs) Lang() string {
+	return m.TheLang
 }
 
 type fileOpener struct {
@@ -481,67 +465,83 @@ type fileOpener struct {
 	openFileFunc
 }
 
+// TODO(bep) mods names, names, names
+type lingoFileInfo struct {
+	os.FileInfo
+
+	lang                string
+	translationBaseName string
+
+	filename string // the real filename in the source filesystem
+	baseDir  string
+	path     string
+
+	openFileFunc
+
+	// Set when there is language information in the filename.
+	weight int
+}
+
+func (fi lingoFileInfo) BaseDir() string {
+	return fi.baseDir
+}
+
+func (fi lingoFileInfo) Filename() string {
+	return fi.filename
+}
+
+func (fi lingoFileInfo) Lang() string {
+	return fi.lang
+}
+
+func (fi lingoFileInfo) Path() string {
+	return fi.path
+}
+
+func (fi lingoFileInfo) RealName() string {
+	panic("remove me")
+}
+
+// TranslationBaseName returns the base filename without any language
+// or file extension.
+// E.g. myarticle.en.md becomes myarticle.
+func (fi lingoFileInfo) TranslationBaseName() string {
+	return fi.translationBaseName
+}
+
+type lingoFsCommon struct {
+	languages map[string]bool
+}
+
+// Try to extract the language from the given filename.
+// Any valid language identificator in the name will win over the
+// language set on the file system, e.g. "mypost.en.md".
+func (l *lingoFsCommon) langInfoFrom(name string) (string, string) {
+	var lang string
+
+	baseName := filepath.Base(name)
+	ext := filepath.Ext(baseName)
+	translationBaseName := baseName
+
+	if ext != "" {
+		translationBaseName = strings.TrimSuffix(translationBaseName, ext)
+	}
+
+	fileLangExt := filepath.Ext(translationBaseName)
+	fileLang := strings.TrimPrefix(fileLangExt, ".")
+
+	if l.languages[fileLang] {
+		lang = fileLang
+
+		translationBaseName = strings.TrimSuffix(translationBaseName, fileLangExt)
+	}
+
+	return lang, translationBaseName
+
+}
+
 type openFileFunc func() (afero.File, error)
 
 func (f openFileFunc) Open() (afero.File, error) {
 	return f()
-}
-
-func (fs *LingoFs) newDirOpener(name string, fi os.FileInfo) fileOpener {
-	return fileOpener{
-		FileInfo: fi,
-		openFileFunc: func() (afero.File, error) {
-			return fs.Open(name)
-		},
-	}
-}
-
-// TODO(bep) mod lstat
-func (fs *LingoFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
-	fi, _, err := fs.pickFirst(name)
-	if err != nil {
-		return nil, false, err
-	}
-	if fi.IsDir() {
-		return fs.newDirOpener(name, fi), false, nil
-	}
-
-	return nil, false, errors.Errorf("lstat: files not supported: %q", name)
-
-}
-
-func (fs *LingoFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
-	panic("not implemented")
-}
-
-func (fs *LingoFs) Rename(o, n string) error {
-	return syscall.EPERM
-}
-
-func (fs *LingoFs) RemoveAll(p string) error {
-	return syscall.EPERM
-}
-
-func (fs *LingoFs) Mkdir(n string, p os.FileMode) error {
-	return syscall.EPERM
-}
-
-func (fs *LingoFs) MkdirAll(n string, p os.FileMode) error {
-	return syscall.EPERM
-}
-
-func (fs *LingoFs) Create(n string) (afero.File, error) {
-	return nil, syscall.EPERM
-}
-
-func (fs *LingoFs) Chtimes(n string, a, m time.Time) error {
-	return syscall.EPERM
-}
-
-func (fs *LingoFs) Chmod(n string, m os.FileMode) error {
-	return syscall.EPERM
-}
-
-func (fs *LingoFs) Remove(n string) error {
-	return syscall.EPERM
 }
