@@ -19,8 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gohugoio/hugo/langs"
-
 	radix "github.com/hashicorp/go-immutable-radix"
 	"github.com/spf13/afero"
 )
@@ -247,24 +245,26 @@ func (f *rootMappingFile) Readdir(count int) ([]os.FileInfo, error) {
 	}
 
 	// Add language information to FileInfo
+	// TODO(bep) mod
+	/*
+		fisn := make([]os.FileInfo, len(fis))
+		for i, fi := range fis {
 
-	fisn := make([]os.FileInfo, len(fis))
-	for i, fi := range fis {
+			rfi := fi.(*realFilenameInfo)
 
-		rfi := fi.(*realFilenameInfo)
+			lfi, err := newLanguageFileInfo(
+				fi.Name(), rfi.RealFilename(),
+				f.rm.Lang, "", rfi.VirtualRoot(),
+				langs.Languages{}.AsSet(), fi)
 
-		lfi, err := newLanguageFileInfo(
-			fi.Name(), rfi.RealFilename(),
-			f.rm.Lang, "", rfi.VirtualRoot(),
-			langs.Languages{}.AsSet(), fi)
-
-		if err != nil {
-			return nil, err
+			if err != nil {
+				return nil, err
+			}
+			fisn[i] = lfi
 		}
-		fisn[i] = lfi
-	}
+	*/
 
-	return fisn, nil
+	return fis, nil
 
 }
 

@@ -27,6 +27,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TODO(bep) mod
+// tc-lib-color/class-Com.Tecnick.Color.Css and class-Com.Tecnick.Color.sv.Css
 func TestLingoFs(t *testing.T) {
 	assert := require.New(t)
 	v := viper.New()

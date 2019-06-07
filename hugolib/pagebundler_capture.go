@@ -742,9 +742,11 @@ func (c *capturer) resolveRealPathIn(fileInfo pathLangFileFi) error {
 		}
 
 		// TODO(bep) improve all of this.
-		if a, ok := fileInfo.(*hugofs.LanguageFileInfo); ok {
-			a.FileInfo = sfi
-		}
+		// TODO(bep) mod
+		/*
+			if a, ok := fileInfo.(*hugofs.LanguageFileInfo); ok {
+				a.FileInfo = sfi
+			}*/
 
 		realPath = link
 

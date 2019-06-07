@@ -727,7 +727,7 @@ func (b *sourceFilesystemsBuilder) createContentOverlayFs(source afero.Fs,
 
 	*absContentDirs = append(*absContentDirs, absContentDir)
 
-	overlay := hugofs.NewLanguageFs(language.Lang, languageSet, afero.NewBasePathFs(source, absContentDir))
+	//	overlay := hugofs.NewLanguageFs(language.Lang, languageSet, afero.NewBasePathFs(source, absContentDir))
 	if len(languages) == 1 {
 		return hugofs.NewLingoFs(languageSet,
 			append([]hugofs.MetaFs{
@@ -750,7 +750,7 @@ func (b *sourceFilesystemsBuilder) createContentOverlayFs(source afero.Fs,
 
 	base = afero.NewCopyOnWriteFs(moduleContentFs, base)
 
-	return hugofs.NewLanguageCompositeFs(base, overlay), nil
+	return base, nil // hugofs.NewLanguageCompositeFs(base, overlay), nil
 
 }
 
