@@ -14,7 +14,6 @@
 package hugofs
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,26 +134,46 @@ func (fs *RootMappingFs) Stat(name string) (os.FileInfo, error) {
 	if fs.isRoot(name) {
 		return newRootMappingDirFileInfo(name), nil
 	}
-	realName, _, rm := fs.realNameAndRoot(name)
 
-	fi, err := fs.Fs.Stat(realName)
+	filename, root, rm := fs.realNameAndRoot(name)
+
+	fi, err := fs.Fs.Stat(filename)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		filename string
-		root     string
-	)
-	if rfi, ok := fi.(RealFilenameInfo); ok {
-		filename = rfi.RealFilename()
-	}
-
-	if vfi, ok := fi.(VirtualFileInfo); ok {
-		root = vfi.VirtualRoot()
-	}
-
 	return decorateFileInfo(fi, filename, root, rm.Lang), nil
+
+}
+
+// LstatIfPossible returns the os.FileInfo structure describing a given file.
+// It attempts to use Lstat if supported or defers to the os.  In addition to
+// the FileInfo, a boolean is returned telling whether Lstat was called.
+func (fs *RootMappingFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
+
+	if fs.isRoot(name) {
+		return newRootMappingDirFileInfo(name), false, nil
+	}
+
+	filename, root, rm := fs.realNameAndRoot(name)
+	var b bool
+	var fi os.FileInfo
+	var err error
+
+	if ls, ok := fs.Fs.(afero.Lstater); ok {
+		fi, b, err = ls.LstatIfPossible(filename)
+		if err != nil {
+			return nil, b, err
+		}
+
+	} else {
+		fi, err = fs.Stat(filename)
+		if err != nil {
+			return nil, b, err
+		}
+	}
+
+	return decorateFileInfo(fi, filename, root, rm.Lang), b, nil
 
 }
 
@@ -191,33 +210,6 @@ func (fs *RootMappingFs) Open(name string) (afero.File, error) {
 		return nil, err
 	}
 	return &rootMappingFile{File: f, name: name, fs: fs, rm: rm}, nil
-}
-
-// LstatIfPossible returns the os.FileInfo structure describing a given file.
-// It attempts to use Lstat if supported or defers to the os.  In addition to
-// the FileInfo, a boolean is returned telling whether Lstat was called.
-func (fs *RootMappingFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
-
-	if fs.isRoot(name) {
-		return newRootMappingDirFileInfo(name), false, nil
-	}
-
-	name, foo, rm := fs.realNameAndRoot(name)
-	fmt.Println("RN", name, foo)
-
-	if ls, ok := fs.Fs.(afero.Lstater); ok {
-		fi, b, err := ls.LstatIfPossible(name)
-		if err != nil {
-			return nil, b, err
-		}
-
-		// TODO(bep) mod
-		return decorateFileInfo(fi, name, "", rm.Lang), b, nil
-
-	}
-
-	fi, err := fs.Stat(name)
-	return fi, false, err
 }
 
 func (fs *RootMappingFs) realNameAndRoot(name string) (string, string, RootMapping) {
